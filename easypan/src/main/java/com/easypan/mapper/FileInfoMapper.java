@@ -2,6 +2,7 @@ package com.easypan.mapper;
 
 import com.easypan.entity.po.FileInfo;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Param;
 
 /**
 * @author 53082
@@ -12,6 +13,8 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 public interface FileInfoMapper extends BaseMapper<FileInfo> {
 
     Long selectUseSpace(String userId);
+
+    FileInfo selectByFileIdAndUserId(@Param("fileId") String fileId, @Param("userId") String userId);
 }
 
 

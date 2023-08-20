@@ -36,4 +36,7 @@
         from file_info
         where user_id=#{userId}
     </select>
+    <select id="selectByFileIdAndUserId" resultType="com.easypan.entity.po.FileInfo">
+        select * from file_info where file_id=#{fileId} and user_id=#{userId}
+    </select>
 </mapper>

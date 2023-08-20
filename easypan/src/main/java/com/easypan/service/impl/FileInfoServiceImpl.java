@@ -1,9 +1,7 @@
 package com.easypan.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.core.toolkit.CollectionUtils;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -15,28 +13,31 @@ import com.easypan.entity.dto.UploadResultDto;
 import com.easypan.entity.dto.UserSpaceDto;
 import com.easypan.entity.enums.*;
 import com.easypan.entity.po.FileInfo;
-import com.easypan.entity.po.UserInfo;
 import com.easypan.entity.query.FileInfoQuery;
 import com.easypan.entity.query.SimplePage;
 import com.easypan.entity.vo.PaginationResultVO;
 import com.easypan.exception.BusinessException;
+import com.easypan.mapper.FileInfoMapper;
 import com.easypan.mapper.UserInfoMapper;
 import com.easypan.service.FileInfoService;
-import com.easypan.mapper.FileInfoMapper;
 import com.easypan.utils.DateUtils;
 import com.easypan.utils.StringTools;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import java.io.File;
 import java.io.IOException;
-import java.util.Arrays;
+import java.io.RandomAccessFile;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
@@ -56,6 +57,9 @@ public class FileInfoServiceImpl extends ServiceImpl<FileInfoMapper, FileInfo>
     public FileInfoMapper fileInfoMapper;
     @Resource
     private UserInfoMapper userInfoMapper;
+    @Resource
+    @Lazy
+    private FileInfoServiceImpl fileInfoService;
 @Resource
 public RedisComponent redisComponent;
     @Override
@@ -158,6 +162,7 @@ public RedisComponent redisComponent;
                 }
             }
             //分片上传
+            //判断用户网盘空间
             Long tempSize = redisComponent.getFileTempSize(webUserDto.getUserId(), fileId);
             if(file.getSize()+tempSize+userSpaceUse.getUseSpace()>userSpaceUse.getTotalSpace()){
                 throw new BusinessException(ResponseCodeEnum.CODE_904);
@@ -176,7 +181,7 @@ public RedisComponent redisComponent;
                 redisComponent.saveFileTempSize(webUserDto.getUserId(), fileId,file.getSize());
                 return resultDto;
             }
-            //合并分片文件
+            //传到最后一片时合并分片文件
             String month= DateUtils.format(new Date(),DateTimePatternEnum.YYYYMM.getPattern());
             String suffix=StringTools.getFileSuffix(fileName);
             //真实文件名
@@ -204,6 +209,13 @@ public RedisComponent redisComponent;
             //更新数据库里用户已使用空间
             updateUserSpace(webUserDto,totalSize);
             resultDto.setStatus(UploadStatusEnums.UPLOAD_FINISH.getCode());
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    fileInfoService.transferFile(fileInfo.getFileId(),webUserDto);
+                }
+            });
+
             return resultDto;
         }catch (BusinessException e){
             logger.error("文件上传失败",e);
@@ -253,6 +265,105 @@ public RedisComponent redisComponent;
         UserSpaceDto userSpaceUse = redisComponent.getUserSpaceUse(webUserDto.getUserId());
         userSpaceUse.setUseSpace(userSpaceUse.getUseSpace()+useSpace);
         redisComponent.saveUserSpaceUse(webUserDto.getUserId(), userSpaceUse);
+    }
+    @Async
+    public void transferFile(String fileId,SessionWebUserDto webUserDto){
+        Boolean transferSuccess=true;
+        String targetFilePath=null;
+        String cover=null;
+        FileTypeEnums fileTypeEnums=null;
+        FileInfo fileInfo=fileInfoMapper.selectByFileIdAndUserId(fileId,webUserDto.getUserId());
+        try {
+            if(fileInfo==null||!FileStatusEnums.TRANSFER.getStatus().equals(fileInfo.getStatus())){
+                    return;
+            }
+            //临时目录
+            String tempFolderName=appConfig.getProjectFolder()+Constants.FILE_FOLDER_TEMP;
+            String currentUserFolderName=webUserDto.getUserId()+fileId;
+            File fileFolder = new File(tempFolderName + currentUserFolderName);
+            String fileSuffix=StringTools.getFileSuffix(fileInfo.getFileName());
+            String month=DateUtils.format(fileInfo.getCreateTime(),DateTimePatternEnum.YYYYMM.getPattern());
+            //目标目录
+            String targetFolderName=appConfig.getProjectFolder()+Constants.FILE_FOLDER_FILE;
+            File targetFolder = new File(targetFolderName + "/" + month);
+            if(!targetFolder.exists()){
+                targetFolder.mkdirs();
+            }
+            //真实的文件名
+            String realFileName = currentUserFolderName + fileSuffix;
+            targetFilePath = targetFolder.getPath() + "/" + realFileName;
+            //合并文件
+            union(fileFolder.getPath(),targetFilePath,fileInfo.getFileName(),true);
+            //todo 视频文件切割
+        }
+        catch (Exception e){
+            logger.error("文件转码失败;文件id{};用户id",fileId,webUserDto.getUserId(),e);
+            transferSuccess=false;
+        }
+        finally {
+            FileInfo updateFileInfo = new FileInfo();
+            updateFileInfo.setFileSize(new File(targetFilePath).length());
+            updateFileInfo.setFileCover(cover);
+            updateFileInfo.setStatus(transferSuccess?FileStatusEnums.TRANSFER.getStatus() : FileStatusEnums.TRANSFER_FAIL.getStatus());
+            FileInfoQuery query = new FileInfoQuery();
+            query.setFileId(fileId);
+            query.setUserId(webUserDto.getUserId());
+            query.setStatus(FileStatusEnums.TRANSFER.getStatus());
+            fileInfoMapper.update(updateFileInfo,getWrapperByParam(query));
+        }
+    }
+    private void union(String dirPath,String toFilePath,String fileName,Boolean delSource){
+        File dir = new File(dirPath);
+        if(!dir.exists()){
+            logger.error("合并文件失败,目录不存在");
+            throw new BusinessException("目录不存在");
+        }
+        File[] files = dir.listFiles();
+        File targetFile = new File(toFilePath);
+        RandomAccessFile writeFile=null;
+        try {
+            writeFile=new RandomAccessFile(targetFile,"rw");
+            byte[] buff = new byte[1024 * 10];
+            for (int i = 0; i < files.length; i++) {
+                int len=-1;
+                File chunkFile=new File(dirPath+"/"+i);
+                RandomAccessFile readFile=null;
+                try {
+                    readFile=new RandomAccessFile(chunkFile,"r");
+                    while ((len=readFile.read(buff))!=-1){
+                        writeFile.write(buff,0,len);
+                    }
+                }catch (Exception e){
+                    logger.error("合并文件分片失败",e);
+                    throw new BusinessException("文件合并失败");
+                }
+                finally {
+                    readFile.close();
+                }
+            }
+        }
+        catch (Exception e){
+            logger.error("合并文件：{} 失败",fileName,e);
+            throw new BusinessException("合并文件"+fileName+"失败！");
+        }
+        finally {
+            if(null!=writeFile){
+                try {
+                    writeFile.close();
+                }
+                catch (Exception e){
+                    e.printStackTrace();
+                }
+            }
+            if(delSource&&dir.exists()){
+                try {
+                    FileUtils.deleteDirectory(dir);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
     }
 }
 
