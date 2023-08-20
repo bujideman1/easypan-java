@@ -304,7 +304,7 @@ public RedisComponent redisComponent;
             FileInfo updateFileInfo = new FileInfo();
             updateFileInfo.setFileSize(new File(targetFilePath).length());
             updateFileInfo.setFileCover(cover);
-            updateFileInfo.setStatus(transferSuccess?FileStatusEnums.TRANSFER.getStatus() : FileStatusEnums.TRANSFER_FAIL.getStatus());
+            updateFileInfo.setStatus(transferSuccess?FileStatusEnums.USING.getStatus()  : FileStatusEnums.TRANSFER_FAIL.getStatus());
             FileInfoQuery query = new FileInfoQuery();
             query.setFileId(fileId);
             query.setUserId(webUserDto.getUserId());
