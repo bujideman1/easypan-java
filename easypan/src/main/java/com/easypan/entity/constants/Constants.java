@@ -23,4 +23,8 @@ public class Constants {
     public static  final String AVATAR_DEFAULT ="default_avatar.jpg";
     public static final Integer LENGTH_30 = 30;
     public static final String VIEW_OBJ_RESULT_KEY ="result";
+    public static final String TS_NAME = "index.ts";
+    public static final String M3U8_NAME = "index.m3u8";
+    public static final String IMAGE_PNG_SUFFIX = ".png";
+    public static final Integer LENGTH_150 = 150;
 }

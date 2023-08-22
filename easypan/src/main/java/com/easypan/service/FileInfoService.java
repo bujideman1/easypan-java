@@ -24,4 +24,10 @@ public interface FileInfoService extends IService<FileInfo> {
     List<FileInfo> findListByParam(FileInfoQuery param);
 
     UploadResultDto uploadFile(SessionWebUserDto webUserDto, String fileId, MultipartFile file, String fileName,String filePid, String fileMd5, Integer chunkIndex, Integer chunks);
+
+    FileInfo getFileInfoByFileIdAndUserId(String fileId, String userId);
+
+    FileInfo newFolder(String filePid, String userId, String fileName);
+
+    List<FileInfo> list(FileInfoQuery query);
 }

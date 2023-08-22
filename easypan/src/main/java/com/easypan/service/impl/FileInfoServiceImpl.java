@@ -1,6 +1,7 @@
 package com.easypan.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -21,6 +22,8 @@ import com.easypan.mapper.FileInfoMapper;
 import com.easypan.mapper.UserInfoMapper;
 import com.easypan.service.FileInfoService;
 import com.easypan.utils.DateUtils;
+import com.easypan.utils.ProcessUtils;
+import com.easypan.utils.ScaleFilter;
 import com.easypan.utils.StringTools;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.ArrayUtils;
@@ -71,14 +74,14 @@ public RedisComponent redisComponent;
 //        page.setSize(pageSize);
         page.setCurrent(param.getPageNo());
         page.setSize(param.getPageSize());
-        LambdaQueryWrapper<FileInfo> wrapper= getWrapperByParam(param);
+        QueryWrapper<FileInfo> wrapper= getWrapperByParam(param);
         fileInfoMapper.selectPage(page, wrapper);
         return (PaginationResultVO<FileInfo>) new PaginationResultVO((int)page.getTotal(), (int)page.getSize(), (int)page.getCurrent(), (int)page.getPages(), page.getRecords());
     }
 
-    private LambdaQueryWrapper<FileInfo> getWrapperByParam(FileInfoQuery param) {
-        LambdaQueryWrapper<FileInfo> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(!StringTools.isEmpty(param.getFileId()),FileInfo::getFileId,param.getFileId())
+    private QueryWrapper<FileInfo> getWrapperByParam(FileInfoQuery param) {
+        QueryWrapper<FileInfo> wrapper = new QueryWrapper<>();
+        wrapper.lambda().eq(StringUtils.isNotEmpty(param.getFileId()),FileInfo::getFileId,param.getFileId())
                 .eq(StringUtils.isNotEmpty(param.getUserId()), FileInfo::getUserId, param.getUserId())
                 .eq(StringUtils.isNotEmpty(param.getFileMd5()), FileInfo::getFileMd5, param.getFileMd5())
                 .eq(StringUtils.isNotEmpty(param.getFilePid()), FileInfo::getFilePid, param.getFilePid())
@@ -99,9 +102,11 @@ public RedisComponent redisComponent;
                 .notIn(ArrayUtils.isNotEmpty(param.getExcludeFileIdArray()), FileInfo::getFileId, param.getExcludeFileIdArray());
         return wrapper;
     }
-    private LambdaQueryWrapper<FileInfo> getListWrapperByParam(FileInfoQuery param){
-        LambdaQueryWrapper<FileInfo> wrapper = getWrapperByParam(param);
-        wrapper.orderBy(Objects.nonNull(param.getOrderBy()),true,FileInfo::getCreateTime);
+    private QueryWrapper<FileInfo> getListWrapperByParam(FileInfoQuery param){
+        QueryWrapper<FileInfo> wrapper = getWrapperByParam(param);
+        if(StringUtils.isNotEmpty(param.getOrderBy())){
+            wrapper.orderByAsc(param.getOrderBy());
+        }
         if (param.getSimplePage() != null) {
             wrapper.last("LIMIT " + param.getSimplePage().getStart() + "," + param.getSimplePage().getEnd());
         }
@@ -181,6 +186,8 @@ public RedisComponent redisComponent;
                 redisComponent.saveFileTempSize(webUserDto.getUserId(), fileId,file.getSize());
                 return resultDto;
             }
+            //如果只有一个分片，也需要保存临时大小
+            redisComponent.saveFileTempSize(webUserDto.getUserId(), fileId,file.getSize());
             //传到最后一片时合并分片文件
             String month= DateUtils.format(new Date(),DateTimePatternEnum.YYYYMM.getPattern());
             String suffix=StringTools.getFileSuffix(fileName);
@@ -235,6 +242,57 @@ public RedisComponent redisComponent;
                     logger.error("删除临时目录失败",e);
                 }
             }
+        }
+    }
+
+    @Override
+    public FileInfo getFileInfoByFileIdAndUserId(String fileId, String userId) {
+        return fileInfoMapper.selectByFileIdAndUserId(fileId,userId);
+    }
+
+    /**
+     * 创建新文件夹
+     * @param filePid
+     * @param userId
+     * @param fileName
+     * @return
+     */
+    @Override
+    public FileInfo newFolder(String filePid, String userId, String fileName) {
+        checkFileName(filePid,userId,fileName,FileFolderTypeEnums.FOLDER.getType());
+        Date curDate=new Date();
+        FileInfo fileInfo = new FileInfo();
+        fileInfo.setUserId(userId);
+        fileInfo.setFileId(StringTools.getRandomString(Constants.LENGTH_10));
+        fileInfo.setFolderType(FileFolderTypeEnums.FOLDER.getType());
+        fileInfo.setFilePid(filePid);
+        fileInfo.setFileName(fileName);
+        fileInfo.setStatus(FileStatusEnums.USING.getStatus());
+        fileInfo.setDelFlag(FileDelFlagEnums.USING.getFlag());
+        fileInfo.setCreateTime(curDate);
+        fileInfo.setLastUpdateTime(curDate);
+        fileInfoMapper.insert(fileInfo);
+        return fileInfo;
+    }
+
+    @Override
+    public List<FileInfo> list(FileInfoQuery query) {
+        return list(getListWrapperByParam(query));
+    }
+
+    /**
+     * 检查文件夹是否有重名文件
+     * @param filePid
+     * @param userId
+     * @param fileName
+     * @param fileFolderType
+     */
+    private void checkFileName(String filePid, String userId, String fileName, Integer fileFolderType) {
+        FileInfoQuery query=new FileInfoQuery();
+        query.setFilePid(filePid).setUserId(userId).setFileName(fileName).setFolderType(fileFolderType).setDelFlag(FileDelFlagEnums.USING.getFlag());
+        Long count = fileInfoMapper.selectCount(getWrapperByParam(query));
+        if(count>0){
+            throw new BusinessException("此目录存在同名文件，请修改名称");
         }
     }
 
@@ -295,6 +353,22 @@ public RedisComponent redisComponent;
             //合并文件
             union(fileFolder.getPath(),targetFilePath,fileInfo.getFileName(),true);
             //todo 视频文件切割
+             fileTypeEnums = FileTypeEnums.getFileTypeBySuffix(fileSuffix);
+             if(fileTypeEnums== FileTypeEnums.VIDEO){
+                cutFile4Video(fileId,targetFilePath);
+                //生成缩略图
+                 cover=month+"/"+currentUserFolderName+Constants.IMAGE_PNG_SUFFIX;
+                 String coverPath=targetFolderName+"/"+cover;
+                 ScaleFilter.createCover4Video(new File(targetFilePath),Constants.LENGTH_150,new File(coverPath));
+             }else if(fileTypeEnums== FileTypeEnums.IMAGE){
+                //生成缩略图
+                 cover=month+"/"+realFileName.replace(".","_.");
+                 String coverPath=targetFolderName+"/"+cover;
+                 Boolean created=ScaleFilter.createThumbnailWidthFFmpeg(new File(targetFilePath),Constants.LENGTH_150,new File(coverPath),false);
+                 if(!created){
+                     FileUtils.copyFile(new File(targetFilePath),new File(coverPath));
+                 }
+             }
         }
         catch (Exception e){
             logger.error("文件转码失败;文件id{};用户id",fileId,webUserDto.getUserId(),e);
@@ -364,6 +438,24 @@ public RedisComponent redisComponent;
             }
         }
 
+    }
+    private void cutFile4Video(String fileId,String videoFilePath){
+        //创建同名切片目录
+        File tsFolder = new File(videoFilePath.substring(0, videoFilePath.lastIndexOf(".")));
+        if(!tsFolder.exists()){
+            tsFolder.mkdirs();
+        }
+        final String CMD_TRANSFER_2TS = "ffmpeg -y -i %s  -vcodec copy -acodec copy -vbsf h264_mp4toannexb %s";
+        final String CMD_CUT_TS = "ffmpeg -i %s -c copy -map 0 -f segment -segment_list %s -segment_time 30 %s/%s_%%4d.ts";
+        String tsPath=tsFolder+"/"+Constants.TS_NAME;
+        //生成ts
+        String cmd=String.format(CMD_TRANSFER_2TS,videoFilePath,tsPath);
+        ProcessUtils.executeCommand(cmd,false);
+        //生成索引文件.m3u8和切片.ts
+        cmd=String.format(CMD_CUT_TS,tsPath,tsFolder.getPath()+"/"+Constants.M3U8_NAME,tsFolder.getPath(),fileId);
+        ProcessUtils.executeCommand(cmd,false);
+        //删除index.ts
+        new File(tsPath).delete();
     }
 }
 

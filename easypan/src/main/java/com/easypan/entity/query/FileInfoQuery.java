@@ -1,8 +1,10 @@
 package com.easypan.entity.query;
 
 import lombok.Data;
+import lombok.experimental.Accessors;
 
 @Data
+@Accessors(chain = true)
 public class FileInfoQuery  extends BaseParam{
 
     /**
