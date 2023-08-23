@@ -10,6 +10,8 @@ public class BaseParam {
     private Integer pageNo;
     private Integer pageSize;
     private String orderBy;
+    private String orderByAsc;
+    private String orderByDesc;
     public Integer getPageNo(){
         if(pageNo==null)return 0;
         return pageNo;

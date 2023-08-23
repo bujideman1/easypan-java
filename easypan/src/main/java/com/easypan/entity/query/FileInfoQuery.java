@@ -3,6 +3,8 @@ package com.easypan.entity.query;
 import lombok.Data;
 import lombok.experimental.Accessors;
 
+import java.util.List;
+
 @Data
 @Accessors(chain = true)
 public class FileInfoQuery  extends BaseParam{
@@ -113,9 +115,9 @@ public class FileInfoQuery  extends BaseParam{
      */
     private Integer delFlag;
 
-    private String[] fileIdArray;
+    private List<String> fileIdArray;
 
-    private String[] filePidArray;
+    private List<String> filePidArray;
 
     private String[] excludeFileIdArray;
 

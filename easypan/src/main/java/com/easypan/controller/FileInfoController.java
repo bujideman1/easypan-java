@@ -3,7 +3,6 @@ package com.easypan.controller;
 import com.easypan.annotation.GlobalInterceptor;
 import com.easypan.annotation.VerifyParam;
 import com.easypan.entity.config.AppConfig;
-import com.easypan.entity.constants.Constants;
 import com.easypan.entity.dto.SessionWebUserDto;
 import com.easypan.entity.dto.UploadResultDto;
 import com.easypan.entity.enums.FileCategoryEnums;
@@ -14,6 +13,7 @@ import com.easypan.entity.vo.FileInfoVO;
 import com.easypan.entity.vo.PaginationResultVO;
 import com.easypan.entity.vo.ResponseVO;
 import com.easypan.service.FileInfoService;
+import com.easypan.utils.CopyTools;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,7 +22,6 @@ import org.springframework.web.multipart.MultipartFile;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
-import java.io.File;
 import java.util.List;
 
 @RestController
@@ -52,6 +51,7 @@ public class FileInfoController extends CommonFileController {
         PaginationResultVO result = fileInfoService.findListByPage(query);
         return getSuccessResponseVO(convert2PaginationVO(result, FileInfoVO.class));
     }
+
 
     /**
      * 上传文件
@@ -125,5 +125,40 @@ public class FileInfoController extends CommonFileController {
         SessionWebUserDto webUserDto = getUserInfoFromSession(session);
         ResponseVO responseVO=super.getFolderInfo(path,webUserDto.getUserId());
         return responseVO;
+    }
+    @GlobalInterceptor(checkParams = true)
+    @RequestMapping("/rename")
+    public ResponseVO rename(HttpSession session,@VerifyParam(required = true) String fileId,
+                                    @VerifyParam(required = true) String fileName
+    ) {
+        SessionWebUserDto webUserDto = getUserInfoFromSession(session);
+        FileInfo fileInfo=fileInfoService.rename(fileId,webUserDto.getUserId(),fileName);
+        return getSuccessResponseVO(fileInfo);
+    }
+    @GlobalInterceptor(checkParams = true)
+    @RequestMapping("/loadAllFolder")
+    public ResponseVO loadAllFolder(HttpSession session,@VerifyParam(required = true) String filePid,
+                             @VerifyParam(required = true) String currentFileIds
+    ) {
+        SessionWebUserDto webUserDto = getUserInfoFromSession(session);
+        List<FileInfo> fileInfos=fileInfoService.loadAllFolder(filePid,webUserDto.getUserId(),currentFileIds);
+        return getSuccessResponseVO(CopyTools.copyList(fileInfos, FileInfoVO.class));
+    }
+    @GlobalInterceptor(checkParams = true)
+    @RequestMapping("/changeFileFolder")
+    public ResponseVO changeFileFolder(HttpSession session,@VerifyParam(required = true) String filePid,
+                                    @VerifyParam(required = true) String fileIds
+    ) {
+        SessionWebUserDto webUserDto = getUserInfoFromSession(session);
+        fileInfoService.changeFileFolder(filePid,webUserDto.getUserId(),fileIds);
+        return getSuccessResponseVO(null);
+    }
+    @GlobalInterceptor(checkParams = true)
+    @RequestMapping("/delFile")
+    public ResponseVO delFile(HttpSession session,@VerifyParam(required = true) String fileIds
+    ) {
+        SessionWebUserDto webUserDto = getUserInfoFromSession(session);
+        fileInfoService.removeFile2RecycleBatch(webUserDto.getUserId(),fileIds);
+        return getSuccessResponseVO(null);
     }
 }

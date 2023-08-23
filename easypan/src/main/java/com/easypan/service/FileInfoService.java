@@ -30,4 +30,14 @@ public interface FileInfoService extends IService<FileInfo> {
     FileInfo newFolder(String filePid, String userId, String fileName);
 
     List<FileInfo> list(FileInfoQuery query);
+
+    FileInfo rename(String fileId, String userId, String fileName);
+
+    List<FileInfo> loadAllFolder(String filePid, String userId, String currentFileIds);
+
+    void changeFileFolder(String filePid, String userId, String fileIds);
+
+    void removeFile2RecycleBatch(String userId, String fileIds);
+
+    void recoverFileBatch(String userId, String fileIds);
 }

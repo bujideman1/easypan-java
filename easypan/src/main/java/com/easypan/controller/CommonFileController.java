@@ -15,6 +15,7 @@ import org.apache.commons.lang3.StringUtils;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletResponse;
 import java.io.File;
+import java.util.Arrays;
 import java.util.List;
 
 public class CommonFileController extends ABaseController{
@@ -72,9 +73,9 @@ public class CommonFileController extends ABaseController{
         query.setUserId(userId)
                 .setDelFlag(FileDelFlagEnums.USING.getFlag())
                 .setFolderType(FileFolderTypeEnums.FOLDER.getType())
-                .setFileIdArray(pathArray);
+                .setFileIdArray(Arrays.asList(pathArray));
         String orderBy="field(file_id,"+"\""+StringUtils.join(pathArray,"\",\"")+"\")";
-        query.setOrderBy(orderBy);
+        query.setOrderByAsc(orderBy);
         List<FileInfo> list=fileInfoService.list(query);
         return getSuccessResponseVO(list);
     }

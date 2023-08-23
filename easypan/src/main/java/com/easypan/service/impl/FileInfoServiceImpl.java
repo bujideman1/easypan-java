@@ -1,6 +1,5 @@
 package com.easypan.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
@@ -41,9 +40,8 @@ import javax.annotation.Resource;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.util.Date;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
 * @author 53082
@@ -97,16 +95,15 @@ public RedisComponent redisComponent;
                 .eq(param.getStatus() != null, FileInfo::getStatus, param.getStatus())
                 .apply(StringUtils.isNotEmpty(param.getRecoveryTime()), "DATE_FORMAT(recovery_time, '%Y-%m-%d') = '" + param.getRecoveryTime() + "'")
                 .eq(param.getDelFlag() != null, FileInfo::getDelFlag, param.getDelFlag())
-                .in(Objects.nonNull(param.getFileIdArray()) && param.getFileIdArray().length > 0, FileInfo::getFileId, param.getFileIdArray())
-                .in(ArrayUtils.isNotEmpty(param.getFilePidArray()), FileInfo::getFilePid, param.getFilePidArray())
+                .in(Objects.nonNull(param.getFileIdArray()) && param.getFileIdArray().size() > 0, FileInfo::getFileId, param.getFileIdArray())
+                .in(Objects.nonNull(param.getFilePidArray()), FileInfo::getFilePid, param.getFilePidArray())
                 .notIn(ArrayUtils.isNotEmpty(param.getExcludeFileIdArray()), FileInfo::getFileId, param.getExcludeFileIdArray());
+        wrapper.orderByAsc(StringUtils.isNotEmpty(param.getOrderByAsc()),param.getOrderByAsc())
+                .orderByDesc(StringUtils.isNotEmpty(param.getOrderByDesc()),param.getOrderByDesc());
         return wrapper;
     }
     private QueryWrapper<FileInfo> getListWrapperByParam(FileInfoQuery param){
         QueryWrapper<FileInfo> wrapper = getWrapperByParam(param);
-        if(StringUtils.isNotEmpty(param.getOrderBy())){
-            wrapper.orderByAsc(param.getOrderBy());
-        }
         if (param.getSimplePage() != null) {
             wrapper.last("LIMIT " + param.getSimplePage().getStart() + "," + param.getSimplePage().getEnd());
         }
@@ -278,6 +275,171 @@ public RedisComponent redisComponent;
     @Override
     public List<FileInfo> list(FileInfoQuery query) {
         return list(getListWrapperByParam(query));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public FileInfo rename(String fileId, String userId, String fileName) {
+        FileInfo fileInfo = fileInfoMapper.selectByFileIdAndUserId(fileId, userId);
+        if(null==fileInfo){
+            throw new BusinessException("文件不存在");
+        }
+        String filePid=fileInfo.getFilePid();
+       checkFileName(filePid,userId,fileName,fileInfo.getFolderType());
+        //获取文件后缀，前端默认不能更改文件后缀
+        if(fileInfo.getFolderType().equals(FileFolderTypeEnums.FILE.getType())){
+            fileName=fileName+StringTools.getFileSuffix(fileInfo.getFileName());
+        }
+        Date curDate=new Date();
+        fileInfo.setFileName(fileName);
+        fileInfo.setLastUpdateTime(curDate);
+        updateById(fileInfo);
+        //防止并发
+        FileInfoQuery query=new FileInfoQuery();
+        query.setFilePid(filePid).setUserId(userId).setFileName(fileName).setDelFlag(FileDelFlagEnums.USING.getFlag());
+        Long count = fileInfoMapper.selectCount(getWrapperByParam(query));
+        if(count>1){
+            throw new BusinessException("文件名"+fileName+"已经存在");
+        }
+        return fileInfo;
+    }
+
+    @Override
+    public List<FileInfo> loadAllFolder(String filePid, String userId, String currentFileIds) {
+        FileInfoQuery query = new FileInfoQuery();
+        query.setUserId(userId).setFilePid(filePid).setFolderType(FileFolderTypeEnums.FOLDER.getType());
+        if(!StringTools.isEmpty(currentFileIds)){
+            query.setExcludeFileIdArray(currentFileIds.split(","));
+        }
+        query.setOrderByDesc("create_time");
+        return fileInfoMapper.selectList(getWrapperByParam(query));
+    }
+
+    @Override
+    public void changeFileFolder(String filePid, String userId, String fileIds) {
+        //需要先判断移动文件是否合法
+        if(fileIds.equals(filePid)){
+            //不能自己移动到自己
+            throw new BusinessException(ResponseCodeEnum.CODE_600);
+        }
+        if(!Constants.ZERO_STR.equals(filePid)){
+            FileInfo fileInfo = fileInfoMapper.selectByFileIdAndUserId(filePid, userId);
+            if(null==fileInfo||!FileDelFlagEnums.USING.getFlag().equals(fileInfo.getDelFlag())){
+                //移动到的父文件不存在或文件状态异常
+                throw new BusinessException(ResponseCodeEnum.CODE_600);
+            }
+        }
+        //查询父文件夹文件列表
+        FileInfoQuery query = new FileInfoQuery();
+        query.setUserId(userId).setFilePid(filePid);
+        List<FileInfo> fileInfoList = fileInfoMapper.selectList(getWrapperByParam(query));
+        Map<String,FileInfo> dbFileList=fileInfoList.stream().collect(Collectors.toMap(FileInfo::getFileName,fileInfo -> fileInfo ));
+        //查询选中的文件
+        String[] fileIdArray = fileIds.split(",");
+        query=new FileInfoQuery();
+        query.setUserId(userId).setFileIdArray(Arrays.asList(fileIdArray));
+        List<FileInfo> selectFileList=fileInfoMapper.selectList(getWrapperByParam(query));
+        //重命名所选文件
+        for (FileInfo select : selectFileList) {
+            FileInfo fileInfo = dbFileList.get(select.getFileName());
+            FileInfo updateFileInfo = new FileInfo();
+            if(fileInfo!=null&&fileInfo.getFolderType().equals(select.getFolderType())){
+                updateFileInfo.setFileName(StringTools.rename(select.getFileName()));
+            }
+            updateFileInfo.setFilePid(filePid);
+            updateFileInfo.setUserId(userId);
+            updateFileInfo.setFileId(select.getFileId());
+            updateById(updateFileInfo);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void removeFile2RecycleBatch(String userId, String fileIds) {
+        /*
+          1.查询待删除文件列表
+          2.获得删除文件目录的子目录
+          3.将子目录更新状态为回收站状态
+          4.将选中文件更新到回收站
+         */
+        String[] fileIdArray = fileIds.split(",");
+        FileInfoQuery query = new FileInfoQuery();
+        query.setFileIdArray(Arrays.asList(fileIdArray)).setUserId(userId).setDelFlag(FileDelFlagEnums.USING.getFlag());
+        List<FileInfo> selectList = list(getWrapperByParam(query));
+        if(selectList.isEmpty()){
+            return;
+        }
+        //获取删除目录子目录
+        List<String> delFilePidList = new ArrayList<>();
+        for (FileInfo fileInfo : selectList) {
+            findAllSubFolderIdList(delFilePidList,userId,fileInfo.getFileId(),FileDelFlagEnums.USING.getFlag());
+        }
+        //将目录所有文件更新为已删除
+        if(!delFilePidList.isEmpty()){
+            //选中目录下的子目录和文件都会被标记为删除状态
+            FileInfo updateInfo = new FileInfo();
+            updateInfo.setDelFlag(FileDelFlagEnums.DEL.getFlag());
+            query=new FileInfoQuery();
+            query.setUserId(userId).setFilePidArray(delFilePidList).setDelFlag(FileDelFlagEnums.USING.getFlag());
+            update(updateInfo,getWrapperByParam(query));
+        }
+        //将选中文件更新到回收站
+        FileInfo updateInfo=new FileInfo();
+        updateInfo.setRecoveryTime(new Date());
+        updateInfo.setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
+        query=new FileInfoQuery();
+        query.setUserId(userId).setFileIdArray(delFilePidList).setDelFlag(FileDelFlagEnums.USING.getFlag());
+        update(updateInfo,getWrapperByParam(query));
+
+    }
+
+    private void findAllSubFolderIdList(List<String> delFilePidList, String userId, String filePid, Integer delFlag) {
+        delFilePidList.add(filePid);
+        FileInfoQuery query = new FileInfoQuery();
+        query.setUserId(userId).setFilePid(filePid).setDelFlag(delFlag).setFolderType(FileFolderTypeEnums.FOLDER.getType());
+        List<FileInfo> list = list(getWrapperByParam(query));
+        for (FileInfo fileInfo : list) {
+            findAllSubFolderIdList(delFilePidList,userId,fileInfo.getFileId(), delFlag);
+        }
+    }
+
+    @Override
+    public void recoverFileBatch(String userId, String fileIds) {
+        /*
+         * 1.查询待恢复文件列表
+         * 2.获得恢复文件目录的子目录
+         * 3.将子目录更新状态为正常状态
+         * 4.将选中文件更新到回收站
+         */
+        //todo 批量恢复回收站
+        String[] fileIdArray = fileIds.split(",");
+        FileInfoQuery query = new FileInfoQuery();
+        query.setFileIdArray(Arrays.asList(fileIdArray)).setUserId(userId).setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
+        List<FileInfo> selectList = list(getWrapperByParam(query));
+        if(selectList.isEmpty()){
+            return;
+        }
+        //获取目录子目录
+        List<String> delFilePidList = new ArrayList<>();
+        for (FileInfo fileInfo : selectList) {
+            findAllSubFolderIdList(delFilePidList,userId,fileInfo.getFileId(),FileDelFlagEnums.DEL.getFlag());
+        }
+        //将目录所有文件更新为已删除
+        if(!delFilePidList.isEmpty()){
+            //恢复选中目录下的子目录和文件
+            FileInfo updateInfo = new FileInfo();
+            updateInfo.setDelFlag(FileDelFlagEnums.USING.getFlag());
+            query=new FileInfoQuery();
+            query.setUserId(userId).setFilePidArray(delFilePidList).setDelFlag(FileDelFlagEnums.DEL.getFlag());
+            update(updateInfo,getWrapperByParam(query));
+        }
+        //将选中文件恢复
+        FileInfo updateInfo=new FileInfo();
+        updateInfo.setLastUpdateTime(new Date());
+        updateInfo.setDelFlag(FileDelFlagEnums.USING.getFlag());
+        query=new FileInfoQuery();
+        query.setUserId(userId).setFileIdArray(delFilePidList).setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
+        update(updateInfo,getWrapperByParam(query));
     }
 
     /**
