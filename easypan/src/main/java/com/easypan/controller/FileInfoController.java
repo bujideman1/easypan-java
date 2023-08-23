@@ -109,6 +109,14 @@ public class FileInfoController extends CommonFileController {
         FileInfo fileInfo=fileInfoService.newFolder(filePid,webUserDto.getUserId(),fileName);
         return getSuccessResponseVO(fileInfo);
     }
+
+    /**
+     * 获取文件路径信息
+     * @param session
+     * @param path
+     * @param fileName
+     * @return
+     */
     @GlobalInterceptor()
     @RequestMapping("/getFolderInfo")
     public ResponseVO getFolderInfo(HttpSession session,@VerifyParam(required = true) String path,
