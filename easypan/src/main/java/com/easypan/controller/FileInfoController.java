@@ -111,7 +111,7 @@ public class FileInfoController extends CommonFileController {
     }
 
     /**
-     * 获取文件路径信息
+     * 获取文件路径信息d
      * @param session
      * @param path
      * @param fileName
