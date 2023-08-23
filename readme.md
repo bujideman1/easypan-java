@@ -1,4 +1,9 @@
 easypan
+# 所需配件
+* redis
+* nginx
+* ffmpeg
+* mysql
 
 
 # git代理设置
