@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 import java.util.List;
@@ -47,7 +48,7 @@ public class FileInfoController extends CommonFileController {
             query.setFileCategory(categoryEnum.getCategory());
         }
         query.setUserId(getUserInfoFromSession(session).getUserId());
-        query.setDelFlag(FileDelFlagEnums.USING.getFlag());
+        query.setDelFlag(FileDelFlagEnums.USING.getFlag()).setOrderByDesc("last_update_time");
         PaginationResultVO result = fileInfoService.findListByPage(query);
         return getSuccessResponseVO(convert2PaginationVO(result, FileInfoVO.class));
     }
@@ -111,7 +112,7 @@ public class FileInfoController extends CommonFileController {
     }
 
     /**
-     * 获取文件路径信息d
+     * 获取文件路径信息
      * @param session
      * @param path
      * @param fileName
@@ -152,6 +153,23 @@ public class FileInfoController extends CommonFileController {
         SessionWebUserDto webUserDto = getUserInfoFromSession(session);
         fileInfoService.changeFileFolder(filePid,webUserDto.getUserId(),fileIds);
         return getSuccessResponseVO(null);
+    }
+    @GlobalInterceptor(checkParams = true)
+    @RequestMapping("/createDownloadUrl/{fileId}")
+    public ResponseVO createDownloadUrl(HttpSession session,@VerifyParam(required = true)@PathVariable("fileId") String fileId
+    ) {
+        SessionWebUserDto webUserDto = getUserInfoFromSession(session);
+        return  super.createDownloadUrl(fileId,webUserDto.getUserId());
+
+    }
+    @GlobalInterceptor(checkParams = true,checkLogin = false)
+    @RequestMapping("/download/{code}")
+    public void createDownloadUrl(HttpServletRequest request,
+                                  HttpServletResponse response,
+                                  @VerifyParam(required = true)@PathVariable("code") String code
+    ) {
+          super.download(request,response,code);
+
     }
     @GlobalInterceptor(checkParams = true)
     @RequestMapping("/delFile")
