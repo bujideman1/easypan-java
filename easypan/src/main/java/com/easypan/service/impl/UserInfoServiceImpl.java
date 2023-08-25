@@ -98,7 +98,7 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo>
             sessionWebUserDto.setIsAdmin(true);
         }
         //用户空间
-        //todo 查询用户使用空间
+        // 查询用户使用空间
         Long useSpace = fileInfoMapper.selectUseSpace(userInfo.getUserId());
         UserSpaceDto userSpaceDto = new UserSpaceDto();
         userSpaceDto.setUseSpace(useSpace);
@@ -152,7 +152,7 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo>
         //判断用户管理员
         webUserDto.setIsAdmin(appConfig.isAdmin(user));
         UserSpaceDto userSpaceDto=new UserSpaceDto();
-        //todo 获取用户已使用空间
+        // 获取用户已使用空间
         Long useSpace = fileInfoMapper.selectUseSpace(user.getUserId());
         userSpaceDto.setUseSpace(useSpace);
         userSpaceDto.setTotalSpace(user.getTotalSpace());

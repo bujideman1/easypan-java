@@ -28,4 +28,6 @@ public class Constants {
     public static final String IMAGE_PNG_SUFFIX = ".png";
     public static final Integer LENGTH_150 = 150;
     public static final String ZERO_STR = "0";
+    public static final String ROOT_PATH_PID = "0";
+    public static final String REDIS_KEY_DOWNLOAD = "easypan:download:";
 }

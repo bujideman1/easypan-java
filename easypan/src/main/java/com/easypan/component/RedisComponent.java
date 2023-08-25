@@ -1,6 +1,7 @@
 package com.easypan.component;
 
 import com.easypan.entity.constants.Constants;
+import com.easypan.entity.dto.DownloadFileDto;
 import com.easypan.entity.dto.SysSettingsDto;
 import com.easypan.entity.dto.UserSpaceDto;
 import com.easypan.mapper.FileInfoMapper;
@@ -31,7 +32,6 @@ public class RedisComponent {
         UserSpaceDto spaceDto = (UserSpaceDto)redisUtils.get(Constants.REDIS_KEY_USER_SPACE_USE + userId);
         if(spaceDto==null){
             spaceDto=new UserSpaceDto();
-            //todo 计算用户使用空间
             Long useSpace = fileInfoMapper.selectUseSpace(userId);
             spaceDto.setUseSpace(useSpace);
             spaceDto.setTotalSpace(getSysSettingsDto().getUserInitUseSpace()*Constants.MB);
@@ -54,5 +54,13 @@ public class RedisComponent {
             return (Long) sizeObj;
         }
         return 0L;
+    }
+
+    public void saveDownloadCode(DownloadFileDto downloadFileDto) {
+        redisUtils.setex(Constants.REDIS_KEY_DOWNLOAD+downloadFileDto.getDownloadCode(),downloadFileDto,Constants.REDIS_KEY_EXPIRES_ONE_MIN*5);
+    }
+
+    public DownloadFileDto getDownloadCode(String code) {
+        return (DownloadFileDto)redisUtils.get(Constants.REDIS_KEY_DOWNLOAD+code);
     }
 }

@@ -208,7 +208,7 @@ public RedisComponent redisComponent;
             fileInfo.setDelFlag(FileDelFlagEnums.USING.getFlag());
             fileInfo.setFileName(fileName);
             fileInfoMapper.insert(fileInfo);
-            //todo 合并文件，转码
+            // 合并文件，转码
             Long totalSize=redisComponent.getFileTempSize(webUserDto.getUserId(),fileId);
             //更新数据库里用户已使用空间
             updateUserSpace(webUserDto,totalSize);
@@ -308,15 +308,16 @@ public RedisComponent redisComponent;
     public List<FileInfo> loadAllFolder(String filePid, String userId, String currentFileIds) {
         FileInfoQuery query = new FileInfoQuery();
         query.setUserId(userId).setFilePid(filePid).setFolderType(FileFolderTypeEnums.FOLDER.getType());
-        if(!StringTools.isEmpty(currentFileIds)){
-            query.setExcludeFileIdArray(currentFileIds.split(","));
-        }
+//        if(!StringTools.isEmpty(currentFileIds)){
+//            query.setExcludeFileIdArray(currentFileIds.split(","));
+//        }
         query.setOrderByDesc("create_time");
         return fileInfoMapper.selectList(getWrapperByParam(query));
     }
 
     @Override
     public void changeFileFolder(String filePid, String userId, String fileIds) {
+        //todo 已完成，需整合另一个版本
         //需要先判断移动文件是否合法
         if(fileIds.equals(filePid)){
             //不能自己移动到自己
@@ -356,6 +357,7 @@ public RedisComponent redisComponent;
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void removeFile2RecycleBatch(String userId, String fileIds) {
+        //todo 已完成，另一台电脑未同步
         /*
           1.查询待删除文件列表
           2.获得删除文件目录的子目录
@@ -403,45 +405,131 @@ public RedisComponent redisComponent;
         }
     }
 
+    /**
+     * 将回收站文件复原
+     * @param userId ：用户id
+     * @param fileIds ：待恢复文件id
+     */
     @Override
     public void recoverFileBatch(String userId, String fileIds) {
         /*
          * 1.查询待恢复文件列表
          * 2.获得恢复文件目录的子目录
          * 3.将子目录更新状态为正常状态
-         * 4.将选中文件更新到回收站
+         * 4.将选中文件更新到正常状态
          */
+        Date curDate=new Date();
         //todo 批量恢复回收站
         String[] fileIdArray = fileIds.split(",");
+        //1.查询待恢复文件列表
         FileInfoQuery query = new FileInfoQuery();
         query.setFileIdArray(Arrays.asList(fileIdArray)).setUserId(userId).setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
         List<FileInfo> selectList = list(getWrapperByParam(query));
         if(selectList.isEmpty()){
             return;
         }
-        //获取目录子目录
+        //2.获取目录子目录
         List<String> delFilePidList = new ArrayList<>();
         for (FileInfo fileInfo : selectList) {
             findAllSubFolderIdList(delFilePidList,userId,fileInfo.getFileId(),FileDelFlagEnums.DEL.getFlag());
         }
-        //将目录所有文件更新为已删除
+        //3，将子目录所有文件更新为正常状态
         if(!delFilePidList.isEmpty()){
             //恢复选中目录下的子目录和文件
             FileInfo updateInfo = new FileInfo();
             updateInfo.setDelFlag(FileDelFlagEnums.USING.getFlag());
+            updateInfo.setLastUpdateTime(curDate);
             query=new FileInfoQuery();
             query.setUserId(userId).setFilePidArray(delFilePidList).setDelFlag(FileDelFlagEnums.DEL.getFlag());
             update(updateInfo,getWrapperByParam(query));
         }
-        //将选中文件恢复
-        FileInfo updateInfo=new FileInfo();
-        updateInfo.setLastUpdateTime(new Date());
-        updateInfo.setDelFlag(FileDelFlagEnums.USING.getFlag());
-        query=new FileInfoQuery();
-        query.setUserId(userId).setFileIdArray(delFilePidList).setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
-        update(updateInfo,getWrapperByParam(query));
+        //4.获取父级目录列表
+        Map<String, Set<String>> broName = new HashMap<>();
+        for (FileInfo fileInfo : selectList) {
+            String filePid = fileInfo.getFilePid();
+            if (!broName.containsKey(filePid)) {
+                //查询同目录文件名列表
+                query = new FileInfoQuery();
+                query.setUserId(userId).setFileId(filePid).setDelFlag(FileDelFlagEnums.USING.getFlag());
+                FileInfo parentFile = getOne(getWrapperByParam(query));
+                if (parentFile != null) {
+                    //查询同目录id
+                    query = new FileInfoQuery();
+                    query.setUserId(userId).setFilePid(filePid).setDelFlag(FileDelFlagEnums.USING.getFlag());
+                    List<FileInfo> fileList = list(getWrapperByParam(query));
+
+                    Set<String> broNames = fileList.stream()
+                            .filter(file -> !file.getFileId().equals(fileInfo.getFileId()))
+                            .map(FileInfo::getFileName)
+                            .collect(Collectors.toSet());
+
+                    broName.put(filePid, broNames);
+                } else {
+                    // 处理父文件夹被删除的情况，将选中文件恢复到根目录下，并处理重名情况
+                    filePid = Constants.ROOT_PATH_PID; // 设置为根目录的ID
+                    query = new FileInfoQuery();
+                    query.setUserId(userId).setFilePid(filePid).setDelFlag(FileDelFlagEnums.USING.getFlag());
+                    List<FileInfo> fileList = list(getWrapperByParam(query));
+
+                    Set<String> broNames = fileList.stream()
+                            .filter(file -> !file.getFileId().equals(fileInfo.getFileId()))
+                            .map(FileInfo::getFileName)
+                            .collect(Collectors.toSet());
+
+                    broName.put(filePid, broNames);
+                }
+            }
+
+            Set<String> broNames = broName.get(filePid);
+            if (broNames != null) {
+                fileInfo.setFileName(renameFile(fileInfo, broNames));
+            }
+
+            fileInfo.setFilePid(filePid);
+            fileInfo.setDelFlag(FileDelFlagEnums.USING.getFlag());
+            fileInfo.setLastUpdateTime(curDate);
+        }
+
+        //将选中文件恢复为正常状态
+        updateBatchById(selectList);
     }
 
+    /**
+     * 重命名同目录文件
+     * @param fileInfo ：文件
+     * @param broNames ：同目录文件名列表
+     * @return ：新文件名
+     */
+    private String renameFile(FileInfo fileInfo,Set<String> broNames) {
+        // 根据你的需求编写重命名逻辑，添加适当的后缀或随机数等
+        // 例如，可以在文件名后面添加数字来区别不同的重名文件
+        int sequence = 0;
+        String srcName = fileInfo.getFileName();
+        String newName=srcName;
+        while (broNames.contains(newName)) {
+            sequence++;
+            if(fileInfo.getFolderType().equals(FileFolderTypeEnums.FOLDER.getType())){
+                //如果是文件夹重名,重命名为(i)
+                newName=String.format("%s (%d)", srcName, sequence);
+            }else{
+                //如果是文件重名名，重命名为_{i}.extension
+                int index = srcName.lastIndexOf(".");
+                if (index != -1) {
+                    // 存在扩展名
+                    String name = srcName.substring(0, index);
+                    String extension = srcName.substring(index);
+
+                    // 构建新的文件名
+                     newName = name + "_" + sequence + extension;
+
+                } else {
+                    // 不存在扩展名
+                     newName = srcName + "_" + sequence;
+                }
+            }
+        }
+        return newName;
+    }
     /**
      * 检查文件夹是否有重名文件
      * @param filePid
@@ -459,7 +547,7 @@ public RedisComponent redisComponent;
     }
 
     /**
-     * 查询数据库是否已经有重名文件
+     * 自动进行重命名操作
      * @param filePid
      * @param userId
      * @param fileName
@@ -514,7 +602,7 @@ public RedisComponent redisComponent;
             targetFilePath = targetFolder.getPath() + "/" + realFileName;
             //合并文件
             union(fileFolder.getPath(),targetFilePath,fileInfo.getFileName(),true);
-            //todo 视频文件切割
+            // 视频文件切割
              fileTypeEnums = FileTypeEnums.getFileTypeBySuffix(fileSuffix);
              if(fileTypeEnums== FileTypeEnums.VIDEO){
                 cutFile4Video(fileId,targetFilePath);
