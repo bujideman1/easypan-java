@@ -40,4 +40,6 @@ public interface FileInfoService extends IService<FileInfo> {
     void removeFile2RecycleBatch(String userId, String fileIds);
 
     void recoverFileBatch(String userId, String fileIds);
+
+    void delFileBatch(String userId, String fileIds, boolean adminOp);
 }

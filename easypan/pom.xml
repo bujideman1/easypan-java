@@ -148,6 +148,13 @@
       <artifactId>commons-io</artifactId>
       <version>${commons.io.version}</version>
     </dependency>
+
+    <!-- 热部署 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-devtools</artifactId>
+      <scope>development</scope>
+    </dependency>
   </dependencies>
 
   <build>

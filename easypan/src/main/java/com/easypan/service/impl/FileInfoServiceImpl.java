@@ -1,6 +1,7 @@
 package com.easypan.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.injector.methods.DeleteBatchByIds;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -13,6 +14,7 @@ import com.easypan.entity.dto.UploadResultDto;
 import com.easypan.entity.dto.UserSpaceDto;
 import com.easypan.entity.enums.*;
 import com.easypan.entity.po.FileInfo;
+import com.easypan.entity.po.UserInfo;
 import com.easypan.entity.query.FileInfoQuery;
 import com.easypan.entity.query.SimplePage;
 import com.easypan.entity.vo.PaginationResultVO;
@@ -425,13 +427,20 @@ public RedisComponent redisComponent;
 
     }
 
-    private void findAllSubFolderIdList(List<String> delFilePidList, String userId, String filePid, Integer delFlag) {
-        delFilePidList.add(filePid);
+    /**
+     * 获取文件子目录
+     * @param fileSubList
+     * @param userId
+     * @param filePid
+     * @param delFlag
+     */
+    private void findAllSubFolderIdList(List<String> fileSubList, String userId, String filePid, Integer delFlag) {
+        fileSubList.add(filePid);
         FileInfoQuery query = new FileInfoQuery();
         query.setUserId(userId).setFilePid(filePid).setDelFlag(delFlag).setFolderType(FileFolderTypeEnums.FOLDER.getType());
         List<FileInfo> list = list(getWrapperByParam(query));
         for (FileInfo fileInfo : list) {
-            findAllSubFolderIdList(delFilePidList,userId,fileInfo.getFileId(), delFlag);
+            findAllSubFolderIdList(fileSubList,userId,fileInfo.getFileId(), delFlag);
         }
     }
 
@@ -523,6 +532,52 @@ public RedisComponent redisComponent;
 
         //将选中文件恢复为正常状态
         updateBatchById(selectList);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void delFileBatch(String userId, String fileIds, boolean adminOp) {
+        Date curDate=new Date();
+        String[] fileIdArray = fileIds.split(",");
+        //1.查询待删除文件列表
+        FileInfoQuery query = new FileInfoQuery();
+        query.setFileIdArray(Arrays.asList(fileIdArray)).setUserId(userId).setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
+        List<FileInfo> selectList = list(getWrapperByParam(query));
+        if(selectList.isEmpty()){
+            return;
+        }
+        //2.获取目录子目录
+        List<String> delFileSubFolder = new ArrayList<>();
+        for (FileInfo fileInfo : selectList) {
+            findAllSubFolderIdList(delFileSubFolder,userId,fileInfo.getFileId(),FileDelFlagEnums.DEL.getFlag());
+        }
+        //3，将子目录所有文件更新为删除
+        if(!delFileSubFolder.isEmpty()){
+            //恢复选中目录下的子目录和文件
+            query=new FileInfoQuery();
+            query.setUserId(userId).setFilePidArray(delFileSubFolder);
+            if(!adminOp){
+                query.setDelFlag(FileDelFlagEnums.DEL.getFlag());
+            }
+            fileInfoMapper.delete(getWrapperByParam(query));
+        }
+        //4.删除所选文件
+        query=new FileInfoQuery();
+        query.setUserId(userId).setFileIdArray(Arrays.asList(fileIdArray));
+        if(!adminOp){
+            query.setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
+        }
+        fileInfoMapper.delete(getWrapperByParam(query));
+        //更新用户空间
+        Long useSpace = fileInfoMapper.selectUseSpace(userId);
+        UserInfo userInfo = new UserInfo();
+        userInfo.setUseSpace(useSpace);
+        userInfo.setUserId(userId);
+        userInfoMapper.updateById(userInfo);
+        //设置缓存
+        UserSpaceDto userSpaceUse = redisComponent.getUserSpaceUse(userId);
+        userSpaceUse.setUseSpace(useSpace);
+        redisComponent.saveUserSpaceUse(userId,userSpaceUse);
     }
 
     /**

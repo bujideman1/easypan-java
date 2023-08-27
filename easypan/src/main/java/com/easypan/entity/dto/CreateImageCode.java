@@ -99,7 +99,7 @@ public class CreateImageCode {
 
     // 得到随机字符
     private String randomStr(int n) {
-        String str1 = "ABCDEFGHIJKLMNPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz123456789";
+        String str1 = "ABCDEFGHIJKLMNPQRSTUVWXYZabcdefghijklmnpqrstuvwxyz123456789";
         String str2 = "";
         int len = str1.length() - 1;
         double r;
