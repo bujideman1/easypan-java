@@ -20,4 +20,17 @@
         valid_type,expire_time,share_time,
         code,show_count
     </sql>
+    <select id="loadShareList" resultType="com.easypan.entity.po.FileShare">
+        select s.*,f.file_name,f.folder_type,f.file_category,f.file_type,f.file_cover from file_share s left join file_info f
+            on s.file_id=f.file_id and f.user_id=s.user_id
+where s.user_id=#{userId}
+    </select>
+    <select id="pageByCondtion" resultType="com.easypan.entity.po.FileShare">
+        select s.*,f.file_name,f.folder_type,f.file_category,f.file_type,f.file_cover
+        from file_share s
+        left join file_info f on s.file_id=f.file_id and f.user_id=s.user_id
+        <if test="ew!=null">
+            ${ew.customSqlSegment}
+        </if>
+    </select>
 </mapper>

@@ -12,10 +12,8 @@ import com.easypan.mapper.UserInfoMapper;
 import com.easypan.service.EmailCodeService;
 import com.easypan.mapper.EmailCodeMapper;
 import com.easypan.utils.StringTools;
-import org.apache.ibatis.javassist.bytecode.stackmap.BasicBlock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -86,8 +84,8 @@ public class EmailCodeServiceImpl extends ServiceImpl<EmailCodeMapper, EmailCode
             helper.setTo(toEmail);
             SysSettingsDto sysSettingsDto = redisComponent.getSysSettingsDto();
 
-            helper.setSubject(sysSettingsDto.getRegisterMailTitle());
-            helper.setText(String.format(sysSettingsDto.getRegisterMailContent(),code));
+            helper.setSubject(sysSettingsDto.getRegisterEmailTitle());
+            helper.setText(String.format(sysSettingsDto.getRegisterEmailContent(),code));
             helper.setSentDate(new Date());
             javaMailSender.send(mimeMessage);
 

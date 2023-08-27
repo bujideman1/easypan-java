@@ -30,4 +30,6 @@ public class Constants {
     public static final String ZERO_STR = "0";
     public static final String ROOT_PATH_PID = "0";
     public static final String REDIS_KEY_DOWNLOAD = "easypan:download:";
+    public static final Integer VALID_CODE_LENGTH = 5;
+    public static final Integer LENGTH_20 = 20;
 }

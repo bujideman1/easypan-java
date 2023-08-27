@@ -76,7 +76,7 @@ public RedisComponent redisComponent;
         page.setSize(param.getPageSize());
         QueryWrapper<FileInfo> wrapper= getWrapperByParam(param);
         fileInfoMapper.selectPage(page, wrapper);
-        return (PaginationResultVO<FileInfo>) new PaginationResultVO((int)page.getTotal(), (int)page.getSize(), (int)page.getCurrent(), (int)page.getPages(), page.getRecords());
+        return (PaginationResultVO<FileInfo>) new PaginationResultVO(page.getTotal(), page.getSize(), page.getCurrent(),page.getPages(), page.getRecords());
     }
 
     private QueryWrapper<FileInfo> getWrapperByParam(FileInfoQuery param) {

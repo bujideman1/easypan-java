@@ -58,4 +58,24 @@ public class FileShare implements Serializable {
 
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
+    @TableField(exist = false)
+    private String fileName;
+    @TableField(exist = false)
+    private Integer folderType;
+
+    /**
+     * 文件分类1：视频2：音频3：图片4：文档5：其他
+     */
+    @TableField(exist = false)
+    private Integer fileCategory;
+    /**
+     * 1：视频2：音频3：图片4：pdf5：doc6：excel7：txt8：code9：zip10：其他
+     */
+    @TableField(exist = false)
+    private Integer fileType;
+    /**
+     * 封面
+     */
+    @TableField(exist = false)
+    private String fileCover;
 }

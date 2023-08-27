@@ -6,6 +6,6 @@ import lombok.Data;
 public class SessionWebUserDto {
     private String nickName;
     private String userId;
-    private Boolean isAdmin;
+    private Boolean admin;
     private String avatar;
 }

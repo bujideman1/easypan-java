@@ -1,5 +1,7 @@
 package com.easypan.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.easypan.component.RedisComponent;
 import com.easypan.entity.config.AppConfig;
@@ -10,6 +12,8 @@ import com.easypan.entity.dto.SysSettingsDto;
 import com.easypan.entity.dto.UserSpaceDto;
 import com.easypan.entity.enums.UserStatusEnum;
 import com.easypan.entity.po.UserInfo;
+import com.easypan.entity.query.UserInfoQuery;
+import com.easypan.entity.vo.PaginationResultVO;
 import com.easypan.exception.BusinessException;
 import com.easypan.mapper.FileInfoMapper;
 import com.easypan.service.EmailCodeService;
@@ -19,8 +23,8 @@ import com.easypan.utils.CopyTools;
 import com.easypan.utils.JsonUtils;
 import com.easypan.utils.OKHttpUtils;
 import com.easypan.utils.StringTools;
-import io.netty.util.internal.StringUtil;
 import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +36,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.Date;
 import java.util.Map;
+import java.util.Objects;
 
 /**
 * @author 53082
@@ -95,7 +100,9 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo>
         sessionWebUserDto.setUserId(userInfo.getUserId());
         sessionWebUserDto.setNickName(userInfo.getNickName());
         if(ArrayUtils.contains(appConfig.getAdminEmails().split(","),email)){
-            sessionWebUserDto.setIsAdmin(true);
+            sessionWebUserDto.setAdmin(true);
+        }else{
+            sessionWebUserDto.setAdmin(false);
         }
         //用户空间
         // 查询用户使用空间
@@ -150,7 +157,7 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo>
         }
         SessionWebUserDto webUserDto = CopyTools.copy(user, SessionWebUserDto.class);
         //判断用户管理员
-        webUserDto.setIsAdmin(appConfig.isAdmin(user));
+        webUserDto.setAdmin(appConfig.isAdmin(user));
         UserSpaceDto userSpaceDto=new UserSpaceDto();
         // 获取用户已使用空间
         Long useSpace = fileInfoMapper.selectUseSpace(user.getUserId());
@@ -158,6 +165,36 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo>
         userSpaceDto.setTotalSpace(user.getTotalSpace());
         redisComponent.saveUserSpaceUse(user.getUserId(), userSpaceDto);
         return webUserDto;
+    }
+
+    @Override
+    public PaginationResultVO findListByPage(UserInfoQuery query) {
+        Page<UserInfo> page = new Page<>(query.getPageNo(), query.getPageSize());
+        QueryWrapper<UserInfo> wrapper=new QueryWrapper<>();
+        wrapper.lambda().orderByDesc(UserInfo::getJoinTime)
+                .eq(Objects.nonNull(query.getStatus()),UserInfo::getStatus,query.getStatus())
+                .like(StringUtils.isNotEmpty(query.getNickNameFuzzy()),UserInfo::getNickName,query.getNickNameFuzzy());
+        page(page,wrapper);
+        PaginationResultVO resultVO = new PaginationResultVO();
+        resultVO.setPageNo(page.getCurrent());
+        resultVO.setPageSize(page.getSize());
+        resultVO.setTotalCount(page.getTotal());
+        resultVO.setList(page.getRecords());
+        return resultVO;
+    }
+
+    @Override
+    public UserInfo updateUserStatus(UserInfoQuery query) {
+        UserInfo updateInfo = new UserInfo();
+        updateInfo.setUserId(query.getUserId());
+        if(Objects.nonNull(query.getChangeSpace())){
+            updateInfo.setTotalSpace(query.getChangeSpace()*Constants.MB);
+        }
+        if(Objects.nonNull(query.getStatus())){
+            updateInfo.setStatus(query.getStatus());
+        }
+        updateById(updateInfo);
+        return updateInfo;
     }
 
     private QQInfoDto getQQUserInfo(String accessToken, String qqOpenId) {

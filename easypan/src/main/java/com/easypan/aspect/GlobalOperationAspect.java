@@ -53,7 +53,7 @@ public class GlobalOperationAspect {
             if(interceptor.checkLogin()||interceptor.checkAdmin()){
                 checkLogin(interceptor.checkAdmin());
             }
-            //校验登录
+            //校验参数
             if(interceptor.checkParams()){
                 validateParams(method,args);
             }
@@ -74,7 +74,7 @@ public class GlobalOperationAspect {
         if(null==webUserDto){
             throw new BusinessException(ResponseCodeEnum.CODE_901);
         }
-        if(checkAdmin&&!webUserDto.getIsAdmin()){
+        if(checkAdmin&&!webUserDto.getAdmin()){
             throw new BusinessException(ResponseCodeEnum.CODE_404);
         }
     }

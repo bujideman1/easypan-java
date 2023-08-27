@@ -3,6 +3,8 @@ package com.easypan.service;
 import com.easypan.entity.dto.SessionWebUserDto;
 import com.easypan.entity.po.UserInfo;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.easypan.entity.query.UserInfoQuery;
+import com.easypan.entity.vo.PaginationResultVO;
 
 /**
 * @author 53082
@@ -18,4 +20,8 @@ public interface UserInfoService extends IService<UserInfo> {
     void resetPwd(String email, String password, String emailCode);
 
     SessionWebUserDto qqLogin(String code);
+
+    PaginationResultVO findListByPage(UserInfoQuery query);
+
+    UserInfo updateUserStatus(UserInfoQuery query);
 }
