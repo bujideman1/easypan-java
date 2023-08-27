@@ -22,7 +22,6 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 
@@ -128,7 +127,7 @@ public class CommonFileController extends ABaseController{
                 // ie游览器
                 fileName = URLEncoder.encode(fileName, "UTF-8");
             } else {
-                fileName = new String(fileName.getBytes(StandardCharsets.UTF_8), StandardCharsets.ISO_8859_1);
+                fileName = new String(fileName.getBytes("UTF-8"), "UTF-8");
             }
             response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
 
@@ -136,5 +135,6 @@ public class CommonFileController extends ABaseController{
         }catch (Exception e){
             e.printStackTrace();
         }
+
     }
 }
