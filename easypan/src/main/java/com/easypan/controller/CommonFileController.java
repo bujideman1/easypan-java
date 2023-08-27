@@ -127,7 +127,7 @@ public class CommonFileController extends ABaseController{
                 // ie游览器
                 fileName = URLEncoder.encode(fileName, "UTF-8");
             } else {
-                fileName = new String(fileName.getBytes("UTF-8"), "UTF-8");
+                fileName = new String(fileName.getBytes("UTF-8"), "ISO-8859-1");
             }
             response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
 
