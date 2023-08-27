@@ -315,17 +315,23 @@ public RedisComponent redisComponent;
         return fileInfoMapper.selectList(getWrapperByParam(query));
     }
 
+    /**
+     *
+     * @param filePid 要移动到的文件夹id
+     * @param userId 用户id
+     * @param fileIds 选中的文件列表,以fileId以","间隔
+     */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void changeFileFolder(String filePid, String userId, String fileIds) {
-        //todo 已完成，需整合另一个版本
         //需要先判断移动文件是否合法
-        if(fileIds.equals(filePid)){
-            //不能自己移动到自己
-            throw new BusinessException(ResponseCodeEnum.CODE_600);
+        if (fileIds.contains(filePid)) {
+            //判断是否移动自己
+            throw new BusinessException("不能将文件移动到自身或其子目录下");
         }
-        if(!Constants.ZERO_STR.equals(filePid)){
+        if (!Constants.ZERO_STR.equals(filePid)) {
             FileInfo fileInfo = fileInfoMapper.selectByFileIdAndUserId(filePid, userId);
-            if(null==fileInfo||!FileDelFlagEnums.USING.getFlag().equals(fileInfo.getDelFlag())){
+            if (null == fileInfo || !FileDelFlagEnums.USING.getFlag().equals(fileInfo.getDelFlag())) {
                 //移动到的父文件不存在或文件状态异常
                 throw new BusinessException(ResponseCodeEnum.CODE_600);
             }
@@ -334,17 +340,28 @@ public RedisComponent redisComponent;
         FileInfoQuery query = new FileInfoQuery();
         query.setUserId(userId).setFilePid(filePid);
         List<FileInfo> fileInfoList = fileInfoMapper.selectList(getWrapperByParam(query));
-        Map<String,FileInfo> dbFileList=fileInfoList.stream().collect(Collectors.toMap(FileInfo::getFileName,fileInfo -> fileInfo ));
+        Map<String, FileInfo> dbFileList = fileInfoList.stream().collect(Collectors.toMap(FileInfo::getFileName, fileInfo -> fileInfo));
         //查询选中的文件
         String[] fileIdArray = fileIds.split(",");
-        query=new FileInfoQuery();
+        query = new FileInfoQuery();
         query.setUserId(userId).setFileIdArray(Arrays.asList(fileIdArray));
-        List<FileInfo> selectFileList=fileInfoMapper.selectList(getWrapperByParam(query));
-        //重命名所选文件
+        List<FileInfo> selectFileList = fileInfoMapper.selectList(getWrapperByParam(query));
+        //判断是否所选文件移动到子目录或自身
+        //code
+        Set<String> folderAndSubfolders = new HashSet<>();
+        for (FileInfo folder : selectFileList) {
+            //获取子目录
+            folderAndSubfolders.addAll(getAllSubfolders(folder));
+        }
+        //检查所选文件是否移动到了子目录
+        if (folderAndSubfolders.contains(filePid)) {
+            throw new BusinessException("不能将文件移动到自身或其子目录下");
+        }
+        //重命名和设置文件状态
         for (FileInfo select : selectFileList) {
             FileInfo fileInfo = dbFileList.get(select.getFileName());
             FileInfo updateFileInfo = new FileInfo();
-            if(fileInfo!=null&&fileInfo.getFolderType().equals(select.getFolderType())){
+            if (fileInfo != null && fileInfo.getFolderType().equals(select.getFolderType())) {
                 updateFileInfo.setFileName(StringTools.rename(select.getFileName()));
             }
             updateFileInfo.setFilePid(filePid);
@@ -353,11 +370,24 @@ public RedisComponent redisComponent;
             updateById(updateFileInfo);
         }
     }
-
+    private List<String> getAllSubfolders(FileInfo fileInfo) {
+        List<String> subfolders = new ArrayList<>();
+        subfolders.add(fileInfo.getFileId());
+        FileInfoQuery query = new FileInfoQuery();
+        query.setUserId(fileInfo.getUserId())
+                .setFilePid(fileInfo.getFileId())
+                .setDelFlag(FileDelFlagEnums.USING.getFlag())
+                .setFolderType(FileFolderTypeEnums.FOLDER.getType());
+        List<FileInfo> childFolders = fileInfoMapper.selectList(getWrapperByParam(query));
+        for (FileInfo childFolder : childFolders) {
+            subfolders.addAll(getAllSubfolders(childFolder));
+        }
+        return subfolders;
+    }
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void removeFile2RecycleBatch(String userId, String fileIds) {
-        //todo 已完成，另一台电脑未同步
+        //
         /*
           1.查询待删除文件列表
           2.获得删除文件目录的子目录
@@ -419,7 +449,7 @@ public RedisComponent redisComponent;
          * 4.将选中文件更新到正常状态
          */
         Date curDate=new Date();
-        //todo 批量恢复回收站
+        //
         String[] fileIdArray = fileIds.split(",");
         //1.查询待恢复文件列表
         FileInfoQuery query = new FileInfoQuery();
@@ -483,6 +513,7 @@ public RedisComponent redisComponent;
             Set<String> broNames = broName.get(filePid);
             if (broNames != null) {
                 fileInfo.setFileName(renameFile(fileInfo, broNames));
+
             }
 
             fileInfo.setFilePid(filePid);
@@ -510,7 +541,7 @@ public RedisComponent redisComponent;
             sequence++;
             if(fileInfo.getFolderType().equals(FileFolderTypeEnums.FOLDER.getType())){
                 //如果是文件夹重名,重命名为(i)
-                newName=String.format("%s (%d)", srcName, sequence);
+                newName=String.format("%s(%d)", srcName, sequence);
             }else{
                 //如果是文件重名名，重命名为_{i}.extension
                 int index = srcName.lastIndexOf(".");
@@ -528,6 +559,8 @@ public RedisComponent redisComponent;
                 }
             }
         }
+        //添加到文件名集合
+        broNames.add(newName);
         return newName;
     }
     /**
