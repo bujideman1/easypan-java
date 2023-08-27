@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.easypan.mapper.FileShareMapper">
+
+    <resultMap id="BaseResultMap" type="com.easypan.entity.po.FileShare">
+            <id property="shareId" column="share_id" jdbcType="VARCHAR"/>
+            <result property="fileId" column="file_id" jdbcType="VARCHAR"/>
+            <result property="userId" column="user_id" jdbcType="VARCHAR"/>
+            <result property="validType" column="valid_type" jdbcType="TINYINT"/>
+            <result property="expireTime" column="expire_time" jdbcType="TIMESTAMP"/>
+            <result property="shareTime" column="share_time" jdbcType="TIMESTAMP"/>
+            <result property="code" column="code" jdbcType="VARCHAR"/>
+            <result property="showCount" column="show_count" jdbcType="INTEGER"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        share_id,file_id,user_id,
+        valid_type,expire_time,share_time,
+        code,show_count
+    </sql>
+</mapper>
