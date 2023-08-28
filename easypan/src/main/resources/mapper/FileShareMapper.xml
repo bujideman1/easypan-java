@@ -20,6 +20,9 @@
         valid_type,expire_time,share_time,
         code,show_count
     </sql>
+    <update id="updateShowCount">
+        update file_share set show_count=show_count+1 where share_id=#{shareId}
+    </update>
     <select id="loadShareList" resultType="com.easypan.entity.po.FileShare">
         select s.*,f.file_name,f.folder_type,f.file_category,f.file_type,f.file_cover from file_share s left join file_info f
             on s.file_id=f.file_id and f.user_id=s.user_id

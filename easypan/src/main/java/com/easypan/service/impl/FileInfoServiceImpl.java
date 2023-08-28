@@ -68,10 +68,6 @@ public RedisComponent redisComponent;
     @Override
     public PaginationResultVO findListByPage(FileInfoQuery param) {
         IPage<FileInfo> page=new Page<>();
-//        int count = this.findCountByParam(param);
-//        int pageSize = param.getPageSize() == null ? PageSize.SIZE15.getSize() : param.getPageSize();
-//        page.setCurrent(param.getPageNo()==null?0:param.getPageNo());
-//        page.setSize(pageSize);
         page.setCurrent(param.getPageNo());
         page.setSize(param.getPageSize());
         QueryWrapper<FileInfo> wrapper= getWrapperByParam(param);
@@ -534,6 +530,12 @@ public RedisComponent redisComponent;
         updateBatchById(selectList);
     }
 
+    /**
+     * 删除文件：彻底删除
+     * @param userId
+     * @param fileIds
+     * @param adminOp
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delFileBatch(String userId, String fileIds, boolean adminOp) {
@@ -541,7 +543,8 @@ public RedisComponent redisComponent;
         String[] fileIdArray = fileIds.split(",");
         //1.查询待删除文件列表
         FileInfoQuery query = new FileInfoQuery();
-        query.setFileIdArray(Arrays.asList(fileIdArray)).setUserId(userId).setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
+        isAdminDelete(query,adminOp);
+        query.setFileIdArray(Arrays.asList(fileIdArray)).setUserId(userId);
         List<FileInfo> selectList = list(getWrapperByParam(query));
         if(selectList.isEmpty()){
             return;
@@ -553,20 +556,15 @@ public RedisComponent redisComponent;
         }
         //3，将子目录所有文件更新为删除
         if(!delFileSubFolder.isEmpty()){
-            //恢复选中目录下的子目录和文件
             query=new FileInfoQuery();
             query.setUserId(userId).setFilePidArray(delFileSubFolder);
-            if(!adminOp){
-                query.setDelFlag(FileDelFlagEnums.DEL.getFlag());
-            }
+            isAdminDelete(query,adminOp);
             fileInfoMapper.delete(getWrapperByParam(query));
         }
         //4.删除所选文件
         query=new FileInfoQuery();
         query.setUserId(userId).setFileIdArray(Arrays.asList(fileIdArray));
-        if(!adminOp){
-            query.setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
-        }
+        isAdminDelete(query,adminOp);
         fileInfoMapper.delete(getWrapperByParam(query));
         //更新用户空间
         Long useSpace = fileInfoMapper.selectUseSpace(userId);
@@ -578,6 +576,24 @@ public RedisComponent redisComponent;
         UserSpaceDto userSpaceUse = redisComponent.getUserSpaceUse(userId);
         userSpaceUse.setUseSpace(useSpace);
         redisComponent.saveUserSpaceUse(userId,userSpaceUse);
+    }
+    private void isAdminDelete(FileInfoQuery query,Boolean adminOp){
+        if(!adminOp){
+            query.setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
+        }
+    }
+    @Override
+    public PaginationResultVO findAllFile(FileInfoQuery query) {
+        Page<FileInfo> page = new Page<>();
+        page.setCurrent(query.getPageNo());
+        page.setSize(query.getPageSize());
+        System.out.println("query.getFileNameFuzzy()"+query.getFileNameFuzzy());
+        QueryWrapper<FileInfo> wrapper = new QueryWrapper<>();
+        wrapper.lambda().eq(FileInfo::getFilePid,query.getFilePid())
+                        .like(StringUtils.isNotEmpty(query.getFileNameFuzzy()),FileInfo::getFileName,query.getFileNameFuzzy());
+
+        fileInfoMapper.selectAllFile(page, wrapper);
+        return new PaginationResultVO(page.getTotal(), page.getSize(), page.getCurrent(), page.getPages(), page.getRecords());
     }
 
     /**
