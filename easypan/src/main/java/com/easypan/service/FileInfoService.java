@@ -44,4 +44,8 @@ public interface FileInfoService extends IService<FileInfo> {
     void delFileBatch(String userId, String fileIds, boolean adminOp);
 
     PaginationResultVO findAllFile(FileInfoQuery query);
+
+    void saveShare(String fileId, String shareFileIds, String myFolderId, String shareUserId, String userId);
+
+    void checkRootFilePid(String fileId, String shareUserId, String filePid);
 }

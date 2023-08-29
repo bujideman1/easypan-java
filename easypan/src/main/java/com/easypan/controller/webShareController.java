@@ -21,7 +21,6 @@ import com.easypan.service.FileInfoService;
 import com.easypan.service.FileShareService;
 import com.easypan.service.UserInfoService;
 import com.easypan.utils.CopyTools;
-import jdk.nashorn.internal.runtime.ConsString;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -82,7 +81,8 @@ public class webShareController extends CommonFileController {
         SessionShareDto shareDto=checkShare(session,shareId);
         FileInfoQuery query = new FileInfoQuery();
         if(StringUtils.isNotEmpty(filePid)&&!Constants.ZERO_STR.equals(filePid)){
-          //todo 判断是否是分析的父id  fileInfoService.checkFootFilePid(shareDto.getFileId(),shareDto.getShareUserId(),filePid);
+          //判断是否是分析的父id
+            fileInfoService.checkRootFilePid(shareDto.getFileId(),shareDto.getShareUserId(),filePid);
             query.setFilePid(filePid);
         }else{
             query.setFileId(shareDto.getFileId());
@@ -136,6 +136,29 @@ public class webShareController extends CommonFileController {
     ) {
         super.download(request,response,code);
 
+    }
+
+    /**
+     * 转存到自己文件夹
+     * @param session
+     * @param shareId
+     * @param shareFileIds
+     * @param myFolderId
+     * @return
+     */
+    @GlobalInterceptor(checkParams = true,checkLogin = false)
+    @RequestMapping("/saveShare")
+    public ResponseVO saveShare(HttpSession session,
+                                  @VerifyParam(required = true)String shareId,
+                                  @VerifyParam(required = true)String shareFileIds,
+                                  @VerifyParam(required = true)String myFolderId){
+        SessionShareDto shareDto = checkShare(session, shareId);
+        SessionWebUserDto webUserDto = getUserInfoFromSession(session);
+        if(shareDto.getShareUserId().equals(webUserDto.getUserId())){
+            throw new BusinessException("不能保存自己分享的文件");
+        }
+        fileInfoService.saveShare(shareDto.getFileId(),shareFileIds,myFolderId,shareDto.getShareUserId(),webUserDto.getUserId());
+       return getSuccessResponseVO(null);
     }
     private SessionShareDto checkShare(HttpSession session, String shareId) {
         SessionShareDto shareDto = getSessionShareFromSession(session, shareId);
