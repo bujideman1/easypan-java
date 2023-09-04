@@ -800,6 +800,12 @@ public RedisComponent redisComponent;
         userSpaceUse.setUseSpace(userSpaceUse.getUseSpace()+useSpace);
         redisComponent.saveUserSpaceUse(webUserDto.getUserId(), userSpaceUse);
     }
+
+    /**
+     * 转码，合并分片文件
+     * @param fileId
+     * @param webUserDto
+     */
     @Async
     public void transferFile(String fileId,SessionWebUserDto webUserDto){
         Boolean transferSuccess=true;
