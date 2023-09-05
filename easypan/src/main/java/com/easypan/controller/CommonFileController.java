@@ -20,6 +20,8 @@ import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -131,9 +133,54 @@ public class CommonFileController extends ABaseController{
                 fileName = new String(fileName.getBytes(StandardCharsets.UTF_8), StandardCharsets.ISO_8859_1);
             }
             response.setHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+            RandomAccessFile raf = new RandomAccessFile(filePath, "r");
+            long fileSize = raf.length();
+            // 获取Range请求头
+            String rangeHeader = request.getHeader("Range");
 
-            readFile(response, filePath);
-        }catch (Exception e){
+            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                String[] rangeData = rangeHeader.substring(6).split("-");
+                long startByte = Long.parseLong(rangeData[0]);
+                long endByte = rangeData.length > 1 ? Long.parseLong(rangeData[1]) : fileSize - 1;
+
+                if (startByte < 0 || startByte >= fileSize || endByte >= fileSize) {
+                    response.setStatus(HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE);
+                    response.setHeader("Content-Range", "bytes */" + fileSize);
+                    return;            }
+
+                long contentLength = endByte - startByte + 1;
+                response.setStatus(HttpServletResponse.SC_PARTIAL_CONTENT);
+                response.setHeader("Content-Range", "bytes " + startByte + "-" + endByte + "/" + fileSize);
+                response.setContentLengthLong(contentLength);
+
+                byte[] buffer = new byte[1024];
+                int bytesRead;
+                long bytesRemaining = contentLength;
+                raf.seek(startByte);
+
+                while (bytesRemaining > 0) {
+                    bytesRead = raf.read(buffer, 0, (int) Math.min(buffer.length, bytesRemaining));
+                    if (bytesRead == -1) {
+                        break;
+                    }
+                    response.getOutputStream().write(buffer, 0, bytesRead);
+                    bytesRemaining -= bytesRead;
+                }
+            } else {
+                response.setStatus(HttpServletResponse.SC_OK);
+                response.setContentLengthLong(fileSize);
+
+                byte[] buffer = new byte[1024];
+                int bytesRead;
+                while ((bytesRead = raf.read(buffer)) != -1) {
+                    response.getOutputStream().write(buffer, 0, bytesRead);
+                }
+            }
+            raf.close();
+        }catch (IOException e){
+            throw new BusinessException("用户暂停下载");
+        }
+        catch (Exception e){
             e.printStackTrace();
         }
 
