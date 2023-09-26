@@ -99,4 +99,9 @@ public class FileInfo implements Serializable {
 
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;
+    /**
+     * 发布人昵称
+     */
+    @TableField(exist = false)
+    private String nickName;
 }

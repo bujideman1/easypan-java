@@ -187,9 +187,6 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo>
     public UserInfo updateUserStatus(UserInfoQuery query) {
         UserInfo updateInfo = new UserInfo();
         updateInfo.setUserId(query.getUserId());
-        if(Objects.nonNull(query.getChangeSpace())){
-            updateInfo.setTotalSpace(query.getChangeSpace()*Constants.MB);
-        }
         if(Objects.nonNull(query.getStatus())){
             updateInfo.setStatus(query.getStatus());
         }
@@ -197,6 +194,12 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo>
         return updateInfo;
     }
 
+    @Override
+    public void changeUserSpace(String userId, Integer changeSpace) {
+        Long space=changeSpace*Constants.MB;
+        userInfoMapper.updateUserSpace(userId,null,space);
+        redisComponent.resetUserSpaceUse(userId);
+    }
     private QQInfoDto getQQUserInfo(String accessToken, String qqOpenId) {
         String url=String.format(appConfig.getUserInfoUrl(),accessToken,appConfig.getAppId(),qqOpenId);
         String res = OKHttpUtils.getRequest(url);

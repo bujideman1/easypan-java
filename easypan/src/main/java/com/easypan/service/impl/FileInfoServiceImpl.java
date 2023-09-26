@@ -1,5 +1,6 @@
 package com.easypan.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.injector.methods.DeleteBatchByIds;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -68,10 +69,6 @@ public RedisComponent redisComponent;
     @Override
     public PaginationResultVO findListByPage(FileInfoQuery param) {
         IPage<FileInfo> page=new Page<>();
-//        int count = this.findCountByParam(param);
-//        int pageSize = param.getPageSize() == null ? PageSize.SIZE15.getSize() : param.getPageSize();
-//        page.setCurrent(param.getPageNo()==null?0:param.getPageNo());
-//        page.setSize(pageSize);
         page.setCurrent(param.getPageNo());
         page.setSize(param.getPageSize());
         QueryWrapper<FileInfo> wrapper= getWrapperByParam(param);
@@ -534,14 +531,20 @@ public RedisComponent redisComponent;
         updateBatchById(selectList);
     }
 
+    /**
+     * 删除文件：彻底删除
+     * @param userId
+     * @param fileIds
+     * @param adminOp
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delFileBatch(String userId, String fileIds, boolean adminOp) {
-        Date curDate=new Date();
         String[] fileIdArray = fileIds.split(",");
         //1.查询待删除文件列表
         FileInfoQuery query = new FileInfoQuery();
-        query.setFileIdArray(Arrays.asList(fileIdArray)).setUserId(userId).setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
+        isAdminDelete(query,adminOp);
+        query.setFileIdArray(Arrays.asList(fileIdArray)).setUserId(userId);
         List<FileInfo> selectList = list(getWrapperByParam(query));
         if(selectList.isEmpty()){
             return;
@@ -553,20 +556,15 @@ public RedisComponent redisComponent;
         }
         //3，将子目录所有文件更新为删除
         if(!delFileSubFolder.isEmpty()){
-            //恢复选中目录下的子目录和文件
             query=new FileInfoQuery();
             query.setUserId(userId).setFilePidArray(delFileSubFolder);
-            if(!adminOp){
-                query.setDelFlag(FileDelFlagEnums.DEL.getFlag());
-            }
+            isAdminDelete(query,adminOp);
             fileInfoMapper.delete(getWrapperByParam(query));
         }
         //4.删除所选文件
         query=new FileInfoQuery();
         query.setUserId(userId).setFileIdArray(Arrays.asList(fileIdArray));
-        if(!adminOp){
-            query.setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
-        }
+        isAdminDelete(query,adminOp);
         fileInfoMapper.delete(getWrapperByParam(query));
         //更新用户空间
         Long useSpace = fileInfoMapper.selectUseSpace(userId);
@@ -579,6 +577,147 @@ public RedisComponent redisComponent;
         userSpaceUse.setUseSpace(useSpace);
         redisComponent.saveUserSpaceUse(userId,userSpaceUse);
     }
+    private void isAdminDelete(FileInfoQuery query,Boolean adminOp){
+        if(!adminOp){
+            query.setDelFlag(FileDelFlagEnums.RECYCLE.getFlag());
+        }
+    }
+    @Override
+    public PaginationResultVO findAllFile(FileInfoQuery query) {
+        Page<FileInfo> page = new Page<>();
+        page.setCurrent(query.getPageNo());
+        page.setSize(query.getPageSize());
+        System.out.println("query.getFileNameFuzzy()"+query.getFileNameFuzzy());
+        QueryWrapper<FileInfo> wrapper = new QueryWrapper<>();
+        wrapper.lambda().eq(FileInfo::getFilePid,query.getFilePid())
+                        .like(StringUtils.isNotEmpty(query.getFileNameFuzzy()),FileInfo::getFileName,query.getFileNameFuzzy());
+
+        fileInfoMapper.selectAllFile(page, wrapper);
+        return new PaginationResultVO(page.getTotal(), page.getSize(), page.getCurrent(), page.getPages(), page.getRecords());
+    }
+
+    /**
+     * 将分享链接中的文件转到自己文件夹
+     * @param fileId 已分享文件id
+     * @param shareFileIds 选中要保存到自己网盘的文件
+     * @param myFolderId 保存到自己的文件夹id
+     * @param shareUserId 分享人id
+     * @param userId 保存到的用户id
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void saveShare(String fileId, String shareFileIds, String myFolderId, String shareUserId, String userId) {
+        /**
+         * 1.查询目标文件夹列表
+         * 2.查询选中要保存的文件列表
+         * 3.判断是否重命名选择的文件
+         * 4.查询选中文件子目录，并设置为保存人的用户id
+         * 5.将选中文件插入到数据库
+         * 6.计算用户空间，并更新到redis
+         */
+
+        //1.查询目标文件夹列表
+        QueryWrapper<FileInfo> wrapper = new QueryWrapper<>();
+         wrapper.lambda().eq(FileInfo::getUserId, userId)
+                .eq(FileInfo::getFilePid, myFolderId);
+        List<FileInfo> fileInfos = list(wrapper);
+        Set<String> broNames = fileInfos.stream().map(FileInfo::getFileName).collect(Collectors.toSet());
+//        2.查询选中文件列表
+        String[] shareFileIdArray = shareFileIds.split(",");
+        wrapper=new QueryWrapper<>();
+        wrapper.lambda().eq(FileInfo::getUserId,shareUserId)
+                .in(FileInfo::getFileId,shareFileIdArray);
+        List<FileInfo> selectFiles=list(wrapper);
+        //文件重命名
+        List<FileInfo> copyFileList=new ArrayList<>();
+        Date curDate = new Date();
+        for (FileInfo selectFile : selectFiles) {
+            //3.重命名
+            selectFile.setFileName(renameFile(selectFile,broNames));
+            //4.查询选中文件子目录
+            findAllSubFile(copyFileList,selectFile,shareUserId,userId,curDate,myFolderId);
+        }
+        //5.将选中文件添加到数据库
+        saveBatch(copyFileList);
+        //6.计算用户使用空间
+        Long useSpace = fileInfoMapper.selectUseSpace(userId);
+        UserInfo userInfo = userInfoMapper.selectById(userId);
+        if(useSpace>userInfo.getTotalSpace()){
+            throw new BusinessException(ResponseCodeEnum.CODE_904);
+        }
+        userInfo=new UserInfo();
+        userInfo.setUserId(userId);
+        userInfo.setUseSpace(useSpace);
+        userInfoMapper.updateById(userInfo);
+        //设置缓存
+        UserSpaceDto userSpaceDto = redisComponent.getUserSpaceUse(userId);
+        userSpaceDto.setUseSpace(useSpace);
+        redisComponent.saveUserSpaceUse(userId,userSpaceDto);
+    }
+
+    /**
+     * 查询选中文件子文件，并设置用户id为当前用户
+     * @param copyFileList
+     * @param fileInfo
+     * @param userId
+     * @param curDate
+     * @param myFolderId
+     */
+    private void findAllSubFile(List<FileInfo> copyFileList, FileInfo fileInfo,String sourceUserId, String userId, Date curDate, String myFolderId) {
+        QueryWrapper<FileInfo> wrapper=null;
+        String sourceFileId = fileInfo.getFileId();
+        fileInfo.setCreateTime(curDate);
+        fileInfo.setLastUpdateTime(curDate);
+        fileInfo.setFilePid(myFolderId);
+        fileInfo.setUserId(userId);
+        String newFileId = StringTools.getRandomString(Constants.LENGTH_10);
+        fileInfo.setFileId(newFileId);
+        copyFileList.add(fileInfo);
+        if(FileFolderTypeEnums.FOLDER.getType().equals(fileInfo.getFolderType())){
+            wrapper=new QueryWrapper<>();
+            wrapper.lambda().eq(FileInfo::getFilePid,sourceFileId)
+                    .eq(FileInfo::getUserId,sourceUserId);
+            List<FileInfo> sourceFileList = list(wrapper);
+            for (FileInfo info : sourceFileList) {
+                findAllSubFile(copyFileList,info,sourceUserId,userId,curDate,newFileId);
+            }
+        }
+    }
+
+    /**
+     * 判断查看的文件是否为已分享的文件子目录
+     * @param rootFilePid 已分享文件id
+     * @param shareUserId 分享人id
+     * @param filePid 请求加载的文件父id
+     */
+    @Override
+    public void checkRootFilePid(String rootFilePid, String shareUserId, String filePid) {
+        if(StringUtils.isEmpty(rootFilePid)){
+            throw new BusinessException(ResponseCodeEnum.CODE_600);
+        }
+        if (rootFilePid.equals(filePid)) {
+            //查看分享文件根目录，放行
+            return;
+        }
+        checkFilePid(rootFilePid,shareUserId,filePid);
+    }
+
+    private void checkFilePid(String rootFilePid, String shareUserId, String filePid) {
+        FileInfo fileInfo = fileInfoMapper.selectByFileIdAndUserId(filePid, shareUserId);
+        if(fileInfo==null){
+            throw new BusinessException(ResponseCodeEnum.CODE_600);
+        }
+        if(Constants.ZERO_STR.equals(fileInfo.getFilePid())){
+            //不能越级查看根目录文件
+            throw new BusinessException(ResponseCodeEnum.CODE_600);
+        }
+        if(fileInfo.getFilePid().equals(rootFilePid)){
+            //在分享文件根目录，放行
+            return;
+        }
+        //向父级目录查询
+        checkFilePid(rootFilePid,shareUserId,fileInfo.getFilePid());
+    }
 
     /**
      * 重命名同目录文件
@@ -587,7 +726,6 @@ public RedisComponent redisComponent;
      * @return ：新文件名
      */
     private String renameFile(FileInfo fileInfo,Set<String> broNames) {
-        // 根据你的需求编写重命名逻辑，添加适当的后缀或随机数等
         // 例如，可以在文件名后面添加数字来区别不同的重名文件
         int sequence = 0;
         String srcName = fileInfo.getFileName();
@@ -662,6 +800,12 @@ public RedisComponent redisComponent;
         userSpaceUse.setUseSpace(userSpaceUse.getUseSpace()+useSpace);
         redisComponent.saveUserSpaceUse(webUserDto.getUserId(), userSpaceUse);
     }
+
+    /**
+     * 转码，合并分片文件
+     * @param fileId
+     * @param webUserDto
+     */
     @Async
     public void transferFile(String fileId,SessionWebUserDto webUserDto){
         Boolean transferSuccess=true;

@@ -138,8 +138,9 @@ public class FileInfoController extends CommonFileController {
     }
     @GlobalInterceptor(checkParams = true)
     @RequestMapping("/loadAllFolder")
-    public ResponseVO loadAllFolder(HttpSession session,@VerifyParam(required = true) String filePid,
-                             @VerifyParam(required = true) String currentFileIds
+    public ResponseVO loadAllFolder(HttpSession session,
+                       @VerifyParam(required = true) String filePid,
+                       String currentFileIds
     ) {
         SessionWebUserDto webUserDto = getUserInfoFromSession(session);
         List<FileInfo> fileInfos=fileInfoService.loadAllFolder(filePid,webUserDto.getUserId(),currentFileIds);

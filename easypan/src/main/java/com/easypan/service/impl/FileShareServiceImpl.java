@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.easypan.entity.constants.Constants;
+import com.easypan.entity.dto.SessionShareDto;
 import com.easypan.entity.enums.ResponseCodeEnum;
 import com.easypan.entity.enums.ShareValidTypeEnums;
 import com.easypan.entity.po.FileInfo;
@@ -76,6 +77,24 @@ private FileShareMapper fileShareMapper;
         if(delete!=shareIdArray.length){
             throw new BusinessException(ResponseCodeEnum.CODE_600);
         }
+    }
+
+    @Override
+    public SessionShareDto checkShareCode(String shareId, String code) {
+        FileShare fileShare = fileShareMapper.selectById(shareId);
+        if(null==fileShare||(fileShare.getExpireTime()!=null&&(new Date()).after(fileShare.getExpireTime()))){
+            throw new BusinessException(ResponseCodeEnum.CODE_902);
+        }
+        if(!fileShare.getCode().equals(code)){
+            throw new BusinessException("提取码错误");
+        }
+        fileShareMapper.updateShowCount(shareId);
+        SessionShareDto sessionShareDto=new SessionShareDto();
+        sessionShareDto.setShareUserId(shareId);
+        sessionShareDto.setFileId(fileShare.getFileId());
+        sessionShareDto.setShareUserId(fileShare.getUserId());
+        sessionShareDto.setExpireTime(fileShare.getExpireTime());
+        return sessionShareDto;
     }
 }
 

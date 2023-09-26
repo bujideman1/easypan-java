@@ -24,4 +24,6 @@ public interface UserInfoService extends IService<UserInfo> {
     PaginationResultVO findListByPage(UserInfoQuery query);
 
     UserInfo updateUserStatus(UserInfoQuery query);
+
+    void changeUserSpace(String userId, Integer changeSpace);
 }

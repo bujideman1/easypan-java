@@ -18,6 +18,8 @@ public interface FileShareMapper extends BaseMapper<FileShare> {
     List<FileShare> loadShareList(FileShareQuery query,String userId);
 
     IPage<FileShare> pageByCondtion(Page<FileShare> page,@Param("ew") QueryWrapper<FileShare> wrapper);
+
+    Boolean updateShowCount(String shareId);
 }
 
 
